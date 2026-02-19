@@ -1,0 +1,6 @@
+Broker address: t0311730.ala.eu-central-1.emqxsl.com
+MQTT over TLS/SSL Port: 8883
+WebSocket over TLS/SSL Port: 8084
+API Endpoint: https://t0311730.ala.eu-central-1.emqxsl.com:8443/api/v5
+Username: wifi_access
+Password: qazxsw123wifi
