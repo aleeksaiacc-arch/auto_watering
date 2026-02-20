@@ -1,178 +1,178 @@
-# ESP MQTT Bridge Algorithm Documentation
+# Документация алгоритма ESP MQTT Bridge
 
-## Overview
-The ESP MQTT Bridge is an ESP8266-based firmware that acts as a communication bridge between an Arduino plant watering system and an MQTT broker. It translates serial commands from the Arduino into MQTT messages and forwards MQTT commands to the Arduino via serial.
+## Обзор
+ESP MQTT Bridge — это прошивка на базе ESP8266, которая выступает в качестве коммуникационного моста между системой полива растений на Arduino и MQTT брокером. Она преобразует последовательные команды от Arduino в MQTT сообщения и пересылает MQTT команды на Arduino через последовательный порт.
 
-## Constants
+## Константы
 
-### WiFi Configuration
-- `WIFI_SSID`: WiFi network name (must be configured)
-- `WIFI_PASS`: WiFi password (must be configured)
+### Конфигурация WiFi
+- `WIFI_SSID`: Имя WiFi сети (должно быть настроено)
+- `WIFI_PASS`: Пароль WiFi (должен быть настроен)
 
-### MQTT Configuration
-- `MQTT_BROKER`: MQTT broker hostname (default: "broker.hivemq.com")
-- `MQTT_PORT`: MQTT broker port (default: 1883, unencrypted)
-- `MQTT_CLIENT_ID`: Unique client identifier for MQTT connection ("plant_watering_esp")
+### Конфигурация MQTT
+- `MQTT_BROKER`: Имя хоста MQTT брокера (по умолчанию: "broker.hivemq.com")
+- `MQTT_PORT`: Порт MQTT брокера (по умолчанию: 1883, незашифрованный)
+- `MQTT_CLIENT_ID`: Уникальный идентификатор клиента для MQTT подключения ("plant_watering_esp")
 
-### MQTT Topics
-- `MQTT_TOPIC_CMD`: Topic for receiving commands from MQTT ("plant/command")
-- `MQTT_TOPIC_MOISTURE`: Topic for publishing moisture sensor readings ("plant/moisture")
-- `MQTT_TOPIC_PUMP`: Topic for publishing pump state ("plant/pump")
-- `MQTT_TOPIC_MODE`: Topic for publishing operation mode ("plant/mode")
-- `"plant/threshold"`: Topic for publishing threshold value (hardcoded string)
+### MQTT топики
+- `MQTT_TOPIC_CMD`: Топик для приема команд из MQTT ("plant/command")
+- `MQTT_TOPIC_MOISTURE`: Топик для публикации показаний датчика влажности ("plant/moisture")
+- `MQTT_TOPIC_PUMP`: Топик для публикации состояния насоса ("plant/pump")
+- `MQTT_TOPIC_MODE`: Топик для публикации режима работы ("plant/mode")
+- `"plant/threshold"`: Топик для публикации значения порога (жестко заданная строка)
 
-### Buffer and Timing Constants
-- `SERIAL_BUF_SIZE`: Maximum size of serial input buffer (128 bytes)
-- `RECONNECT_DELAY`: Minimum delay between MQTT reconnection attempts (5000 ms)
+### Константы буферов и таймингов
+- `SERIAL_BUF_SIZE`: Максимальный размер буфера последовательного ввода (128 байт)
+- `RECONNECT_DELAY`: Минимальная задержка между попытками переподключения MQTT (5000 мс)
 
-## Global Variables
+## Глобальные переменные
 
-- `wifiClient`: WiFiClient instance for network communication
-- `mqtt`: PubSubClient instance for MQTT communication
-- `serialBuf[SERIAL_BUF_SIZE]`: Buffer for accumulating serial input characters
-- `serialIdx`: Current index in serial buffer (0-127)
-- `lastReconnect`: Timestamp of last reconnection attempt (milliseconds)
+- `wifiClient`: Экземпляр WiFiClient для сетевой коммуникации
+- `mqtt`: Экземпляр PubSubClient для MQTT коммуникации
+- `serialBuf[SERIAL_BUF_SIZE]`: Буфер для накопления символов последовательного ввода
+- `serialIdx`: Текущий индекс в буфере последовательного порта (0-127)
+- `lastReconnect`: Временная метка последней попытки переподключения (миллисекунды)
 
-## Setup Algorithm
+## Алгоритм инициализации (`setup`)
 
-1. Initialize Serial communication at 115200 baud
-2. Set WiFi mode to Station (WIFI_STA) - client mode only
-3. Begin WiFi connection using SSID and password
-4. Configure MQTT server address and port
-5. Register MQTT callback function for incoming messages
+1. Инициализация последовательной коммуникации на скорости 115200 бод
+2. Установка режима WiFi в Station (WIFI_STA) - только режим клиента
+3. Начало подключения WiFi с использованием SSID и пароля
+4. Настройка адреса и порта MQTT сервера
+5. Регистрация функции обратного вызова MQTT для входящих сообщений
 
-**Note**: WiFi connection is asynchronous and continues in the background after `WiFi.begin()`.
+**Примечание**: Подключение WiFi асинхронное и продолжается в фоновом режиме после `WiFi.begin()`.
 
-## MQTT Callback Algorithm (`mqttCallback`)
+## Алгоритм обратного вызова MQTT (`mqttCallback`)
 
-Processes incoming MQTT messages:
+Обрабатывает входящие MQTT сообщения:
 
-1. **Topic Validation**: Check if message topic matches `MQTT_TOPIC_CMD`
-   - If not matching, exit immediately
-2. **Payload Size Check**: Verify payload length is less than `SERIAL_BUF_SIZE`
-   - Prevents buffer overflow
-   - If too large, exit without processing
-3. **Payload Extraction**: Copy payload bytes to local buffer
-4. **Null Termination**: Add null terminator to create valid C string
-5. **Serial Forwarding**: Send complete command to Arduino via `Serial.println()`
+1. **Проверка топика**: Проверяет, соответствует ли топик сообщения `MQTT_TOPIC_CMD`
+   - Если не соответствует, немедленно выходит
+2. **Проверка размера полезной нагрузки**: Проверяет, что длина полезной нагрузки меньше `SERIAL_BUF_SIZE`
+   - Предотвращает переполнение буфера
+   - Если слишком большое, выходит без обработки
+3. **Извлечение полезной нагрузки**: Копирует байты полезной нагрузки в локальный буфер
+4. **Нулевое завершение**: Добавляет нулевой терминатор для создания валидной C-строки
+5. **Пересылка через последовательный порт**: Отправляет полную команду на Arduino через `Serial.println()`
 
-**Purpose**: Forwards MQTT commands directly to Arduino without modification.
+**Назначение**: Пересылает MQTT команды напрямую на Arduino без изменений.
 
-## MQTT Connection Algorithm (`connectMqtt`)
+## Алгоритм подключения MQTT (`connectMqtt`)
 
-Manages MQTT broker connection:
+Управляет подключением к MQTT брокеру:
 
-1. **Connection Check**: If already connected, exit immediately
-2. **Connection Attempt**: Call `mqtt.connect()` with client ID
-3. **Subscription**: If connection successful, subscribe to `MQTT_TOPIC_CMD`
-   - Enables receiving commands from MQTT broker
-4. **Failure Handling**: If connection fails, function returns silently
-   - Reconnection will be retried in main loop
+1. **Проверка подключения**: Если уже подключен, немедленно выходит
+2. **Попытка подключения**: Вызывает `mqtt.connect()` с идентификатором клиента
+3. **Подписка**: Если подключение успешно, подписывается на `MQTT_TOPIC_CMD`
+   - Позволяет получать команды от MQTT брокера
+4. **Обработка ошибок**: Если подключение не удалось, функция возвращается без действий
+   - Переподключение будет повторено в основном цикле
 
-**Note**: Uses no authentication (no username/password). Connection may fail silently.
+**Примечание**: Не использует аутентификацию (нет имени пользователя/пароля). Подключение может завершиться неудачей без уведомления.
 
-## Serial Line Processing Algorithm (`processSerialLine`)
+## Алгоритм обработки строк последовательного порта (`processSerialLine`)
 
-Parses and processes serial messages from Arduino. Processes three message formats:
+Парсит и обрабатывает сообщения последовательного порта от Arduino. Обрабатывает три формата сообщений:
 
-### Format 1: Complete Status Message
-**Pattern**: `"MOISTURE:%d|PUMP:%7[^|]|MODE:%7[^|]|THRESHOLD:%d"`
+### Формат 1: Полное сообщение о статусе
+**Шаблон**: `"MOISTURE:%d|PUMP:%7[^|]|MODE:%7[^|]|THRESHOLD:%d"`
 
-**Detection**: Checks if line contains `"|PUMP:"` substring
+**Обнаружение**: Проверяет, содержит ли строка подстроку `"|PUMP:"`
 
-**Parsing**:
-- Uses `sscanf()` to extract:
-  - `moist`: Moisture percentage (integer, -1 if not found)
-  - `pump`: Pump state string (max 7 chars, "ON" or "OFF")
-  - `mode`: Mode string (max 7 chars, "AUTO" or "MANUAL")
-  - `thresh`: Threshold value (integer, -1 if not found)
+**Парсинг**:
+- Использует `sscanf()` для извлечения:
+  - `moist`: Процент влажности (целое число, -1 если не найдено)
+  - `pump`: Строка состояния насоса (макс. 7 символов, "ON" или "OFF")
+  - `mode`: Строка режима (макс. 7 символов, "AUTO" или "MANUAL")
+  - `thresh`: Значение порога (целое число, -1 если не найдено)
 
-**Publishing Logic**:
-- If `moist >= 0`: Publish to `MQTT_TOPIC_MOISTURE` as string
-- If `pump[0]` is not null: Publish pump state to `MQTT_TOPIC_PUMP`
-- If `mode[0]` is not null: Publish mode to `MQTT_TOPIC_MODE`
-- If `thresh >= 0`: Publish to `"plant/threshold"` as string
+**Логика публикации**:
+- Если `moist >= 0`: Публикует в `MQTT_TOPIC_MOISTURE` как строку
+- Если `pump[0]` не null: Публикует состояние насоса в `MQTT_TOPIC_PUMP`
+- Если `mode[0]` не null: Публикует режим в `MQTT_TOPIC_MODE`
+- Если `thresh >= 0`: Публикует в `"plant/threshold"` как строку
 
-**Early Return**: After processing, function returns immediately (prevents processing other formats)
+**Ранний возврат**: После обработки функция немедленно возвращается (предотвращает обработку других форматов)
 
-### Format 2: Moisture-Only Message
-**Pattern**: `"MOISTURE:%d"`
+### Формат 2: Сообщение только о влажности
+**Шаблон**: `"MOISTURE:%d"`
 
-**Detection**: Checks if line starts with `"MOISTURE:"` (first 9 characters)
+**Обнаружение**: Проверяет, начинается ли строка с `"MOISTURE:"` (первые 9 символов)
 
-**Processing**: 
-- Extracts substring after `"MOISTURE:"` (line + 9)
-- Publishes directly to `MQTT_TOPIC_MOISTURE` without conversion
+**Обработка**: 
+- Извлекает подстроку после `"MOISTURE:"` (line + 9)
+- Публикует напрямую в `MQTT_TOPIC_MOISTURE` без преобразования
 
-**Early Return**: Returns after publishing
+**Ранний возврат**: Возвращается после публикации
 
-### Format 3: Generic MQTT Publish Command
-**Pattern**: `"MQTT_PUB:<topic>:<payload>"`
+### Формат 3: Универсальная команда публикации MQTT
+**Шаблон**: `"MQTT_PUB:<topic>:<payload>"`
 
-**Detection**: Checks if line starts with `"MQTT_PUB:"` (first 9 characters)
+**Обнаружение**: Проверяет, начинается ли строка с `"MQTT_PUB:"` (первые 9 символов)
 
-**Parsing**:
-1. Extract substring after `"MQTT_PUB:"` (rest = line + 9)
-2. Find first colon (`:`) separator
-3. Validate colon exists and is not at start position
-4. Calculate topic length (distance from start to colon)
-5. Copy topic to local buffer (max 63 chars, prevents overflow)
-6. Null-terminate topic string
-7. Extract payload (everything after colon)
-8. Publish to extracted topic with payload
+**Парсинг**:
+1. Извлекает подстроку после `"MQTT_PUB:"` (rest = line + 9)
+2. Находит первый разделитель двоеточия (`:`)
+3. Проверяет, что двоеточие существует и не находится в начале позиции
+4. Вычисляет длину топика (расстояние от начала до двоеточия)
+5. Копирует топик в локальный буфер (макс. 63 символа, предотвращает переполнение)
+6. Добавляет нулевое завершение строки топика
+7. Извлекает полезную нагрузку (все после двоеточия)
+8. Публикует в извлеченный топик с полезной нагрузкой
 
-**Purpose**: Allows Arduino to publish arbitrary MQTT messages through ESP8266.
+**Назначение**: Позволяет Arduino публиковать произвольные MQTT сообщения через ESP8266.
 
-## Main Loop Algorithm (`loop`)
+## Алгоритм основного цикла (`loop`)
 
-Primary execution loop with three main responsibilities:
+Основной цикл выполнения с тремя основными обязанностями:
 
-### 1. WiFi Connection Check
-- Check `WiFi.status()` for connection state
-- If not connected (`WL_CONNECTED`):
-  - Wait 100ms
-  - Exit loop iteration (skip MQTT and serial processing)
-- **Principle**: All functionality disabled until WiFi is connected
+### 1. Проверка подключения WiFi
+- Проверяет `WiFi.status()` для состояния подключения
+- Если не подключен (`WL_CONNECTED`):
+  - Ожидает 100 мс
+  - Выходит из итерации цикла (пропускает обработку MQTT и последовательного порта)
+- **Принцип**: Вся функциональность отключена до подключения WiFi
 
-### 2. MQTT Connection Management
-- **If Not Connected**:
-  - Check if `RECONNECT_DELAY` has elapsed since `lastReconnect`
-  - If delay elapsed:
-    - Update `lastReconnect` to current time
-    - Call `connectMqtt()` to attempt reconnection
-  - **Principle**: Throttles reconnection attempts to prevent flooding
+### 2. Управление подключением MQTT
+- **Если не подключен**:
+  - Проверяет, истекла ли задержка `RECONNECT_DELAY` с момента `lastReconnect`
+  - Если задержка истекла:
+    - Обновляет `lastReconnect` на текущее время
+    - Вызывает `connectMqtt()` для попытки переподключения
+  - **Принцип**: Ограничивает попытки переподключения для предотвращения перегрузки
 
-- **If Connected**:
-  - Call `mqtt.loop()` to process incoming messages and maintain connection
-  - This triggers `mqttCallback()` for any received messages
+- **Если подключен**:
+  - Вызывает `mqtt.loop()` для обработки входящих сообщений и поддержания подключения
+  - Это вызывает `mqttCallback()` для любых полученных сообщений
 
-### 3. Serial Input Processing
-- **Character-by-Character Reading**:
-  - Read all available characters from Serial port
-  - For each character:
-    - **Newline Detection** (`\n` or `\r`):
-      - If buffer has content (`serialIdx > 0`):
-        - Null-terminate buffer
-        - Process complete line via `processSerialLine()`
-        - Reset buffer index to 0
-    - **Character Accumulation**:
-      - If buffer has space (`serialIdx < SERIAL_BUF_SIZE - 1`):
-        - Store character in `serialBuf[serialIdx]`
-        - Increment `serialIdx`
-      - **Overflow Protection**: Characters beyond buffer size are discarded
+### 3. Обработка ввода последовательного порта
+- **Чтение посимвольно**:
+  - Читает все доступные символы из последовательного порта
+  - Для каждого символа:
+    - **Обнаружение новой строки** (`\n` или `\r`):
+      - Если в буфере есть содержимое (`serialIdx > 0`):
+        - Добавляет нулевое завершение буфера
+        - Обрабатывает полную строку через `processSerialLine()`
+        - Сбрасывает индекс буфера в 0
+    - **Накопление символов**:
+      - Если в буфере есть место (`serialIdx < SERIAL_BUF_SIZE - 1`):
+        - Сохраняет символ в `serialBuf[serialIdx]`
+        - Увеличивает `serialIdx`
+      - **Защита от переполнения**: Символы за пределами размера буфера отбрасываются
 
-**Principle**: Line-based protocol - commands must end with newline character.
+**Принцип**: Протокол на основе строк - команды должны заканчиваться символом новой строки.
 
-## Communication Protocol
+## Протокол коммуникации
 
-### Arduino → ESP8266 (Serial)
-- **Status Message**: `"MOISTURE:%d|PUMP:%s|MODE:%s|THRESHOLD:%d\n"`
-- **Moisture Update**: `"MOISTURE:%d\n"`
-- **MQTT Publish Request**: `"MQTT_PUB:<topic>:<payload>\n"`
+### Arduino → ESP8266 (Последовательный порт)
+- **Сообщение о статусе**: `"MOISTURE:%d|PUMP:%s|MODE:%s|THRESHOLD:%d\n"`
+- **Обновление влажности**: `"MOISTURE:%d\n"`
+- **Запрос публикации MQTT**: `"MQTT_PUB:<topic>:<payload>\n"`
 
-### MQTT → Arduino (via Serial)
-- **Command Format**: Plain text command ending with newline
-- **Supported Commands**: Forwarded as-is (parsed by Arduino)
+### MQTT → Arduino (через последовательный порт)
+- **Формат команды**: Простой текстовый текст команды, заканчивающийся новой строкой
+- **Поддерживаемые команды**: Пересылаются как есть (парсятся Arduino)
   - `"PUMP_ON\n"`
   - `"PUMP_OFF\n"`
   - `"GET_STATUS\n"`
@@ -180,38 +180,38 @@ Primary execution loop with three main responsibilities:
   - `"MODE_AUTO\n"`
   - `"MODE_MANUAL\n"`
 
-### ESP8266 → MQTT Broker
-- **Moisture**: `"plant/moisture"` → numeric string (e.g., "45")
-- **Pump State**: `"plant/pump"` → "ON" or "OFF"
-- **Mode**: `"plant/mode"` → "AUTO" or "MANUAL"
-- **Threshold**: `"plant/threshold"` → numeric string (e.g., "30")
+### ESP8266 → MQTT брокер
+- **Влажность**: `"plant/moisture"` → числовая строка (например, "45")
+- **Состояние насоса**: `"plant/pump"` → "ON" или "OFF"
+- **Режим**: `"plant/mode"` → "AUTO" или "MANUAL"
+- **Порог**: `"plant/threshold"` → числовая строка (например, "30")
 
-## Error Handling
+## Обработка ошибок
 
-1. **Buffer Overflow Protection**:
-   - Serial buffer: Discards characters beyond `SERIAL_BUF_SIZE - 1`
-   - MQTT payload: Rejects messages larger than buffer
-   - Topic buffer: Limits to 63 characters
+1. **Защита от переполнения буфера**:
+   - Буфер последовательного порта: Отбрасывает символы за пределами `SERIAL_BUF_SIZE - 1`
+   - Полезная нагрузка MQTT: Отклоняет сообщения больше буфера
+   - Буфер топика: Ограничивает до 63 символов
 
-2. **Connection Failures**:
-   - WiFi: Loop waits indefinitely for connection
-   - MQTT: Reconnection attempts throttled by `RECONNECT_DELAY`
+2. **Ошибки подключения**:
+   - WiFi: Цикл бесконечно ждет подключения
+   - MQTT: Попытки переподключения ограничены `RECONNECT_DELAY`
 
-3. **Parsing Failures**:
-   - `sscanf()` failures result in uninitialized variables (-1 or empty strings)
-   - Publishing only occurs if values are valid (checked before publishing)
+3. **Ошибки парсинга**:
+   - Ошибки `sscanf()` приводят к неинициализированным переменным (-1 или пустые строки)
+   - Публикация происходит только если значения валидны (проверяется перед публикацией)
 
-## Timing Characteristics
+## Временные характеристики
 
-- **Serial Baud Rate**: 115200 bps
-- **Reconnection Throttle**: Minimum 5 seconds between attempts
-- **WiFi Check Delay**: 100ms when disconnected
-- **MQTT Loop**: Called every iteration when connected (non-blocking)
+- **Скорость последовательного порта**: 115200 бод
+- **Ограничение переподключения**: Минимум 5 секунд между попытками
+- **Задержка проверки WiFi**: 100 мс при отключении
+- **Цикл MQTT**: Вызывается на каждой итерации при подключении (неблокирующий)
 
-## Design Principles
+## Принципы проектирования
 
-1. **Bidirectional Bridge**: Translates between serial and MQTT protocols
-2. **Stateless Processing**: Each message processed independently
-3. **Non-Blocking**: Uses `mqtt.loop()` for asynchronous MQTT handling
-4. **Fail-Safe**: Continues operating even if MQTT disconnects (serial still works)
-5. **Protocol Transparency**: MQTT commands forwarded without modification
+1. **Двунаправленный мост**: Преобразует между протоколами последовательного порта и MQTT
+2. **Обработка без состояния**: Каждое сообщение обрабатывается независимо
+3. **Неблокирующий**: Использует `mqtt.loop()` для асинхронной обработки MQTT
+4. **Отказоустойчивость**: Продолжает работать даже при отключении MQTT (последовательный порт все еще работает)
+5. **Прозрачность протокола**: MQTT команды пересылаются без изменений
