@@ -1,6 +1,6 @@
 {
   "name": "plant_watering",
   "version": "1.0.0",
-  "description": "Automated plant watering system with LGT8F328P and ESP8266",
+  "description": "Automated plant watering system with ATmega328P and ESP8266",
   "license": "ISC"
 }

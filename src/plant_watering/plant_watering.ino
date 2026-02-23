@@ -11,8 +11,8 @@
 #define SENSOR_SAMPLES 5
 #define CMD_BUFFER_SIZE 32
 
-#define ADC_DRY 3500
-#define ADC_WET 800
+#define ADC_DRY 875
+#define ADC_WET 200
 
 #define USE_ESP8266 1
 #define USE_SERIAL_DEBUG 0
