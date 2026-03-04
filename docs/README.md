@@ -8,9 +8,7 @@
 
 - **насоса** - (подаёт воду в грунт, управляется через IRF540); 
 
-- **ESP8266 ESP-01** - (модуль Wi-Fi, связь с MQTT-брокером для мониторинга и удалённого управления);
-
-- **адаптер ESP-01** - (LDO 3.3V, встроенный level shifter 5V↔3.3V; питание 4.5–5.5V).
+- **Wemos D1 Mini** - (модуль Wi-Fi на ESP8266, связь с MQTT-брокером для мониторинга и удалённого управления; встроенный USB через CH340).
 
 ## Схема подключения
 
@@ -18,7 +16,7 @@
 |-----------|-------------------------|
 | Резистивный датчик влажности | SIG → A0<br>VCC → 5V<br>GND → GND |
 | Насос (через IRF540) | D4 → Gate<br>Насос (−) → Drain<br>Source → GND |
-| ESP-01 (через адаптер) | TX → D10 (RX)<br>RX → D11 (TX)<br>GND → GND<br>VCC → 5V |
+| D1 Mini | TX → D10 (RX)<br>RX → D11 (TX) ¹<br>GND → GND<br>5V → 5V |
 
 ### Насос через IRF540
 
@@ -43,16 +41,24 @@ D4 ──[R1 220Ω]── Gate IRF540
 
 **Важно:** Насос питается от отдельного источника 5–12V, не от пина LGT. Диод D1 обязателен — без него выброс ЭДС при отключении может вывести MOSFET из строя.
 
-### Адаптер ESP-01
+### D1 Mini
 
-Используется модуль-адаптер с LDO 3.3V и встроенным level shifter. LGT подключается к адаптеру напрямую (5V, GND, TX, RX); ESP-01 устанавливается в разъём адаптера. Дополнительные делители или стабилизаторы не требуются.
+D1 Mini питается от 5V (через встроенный LDO → 3.3V). TX (3.3V) подаётся напрямую на D10 LGT — совместимо. RX D1 Mini рассчитан на 3.3V, поэтому 5V-сигнал с D11 LGT нужно понизить делителем напряжения.
+
+¹ **Делитель на линии LGT D11 → D1 Mini RX:**
+```
+LGT D11 ──[1kΩ]──┬── D1 Mini RX
+                  │
+                [2kΩ]
+                  │
+                 GND
+```
 
 | Параметр | Значение |
 |----------|----------|
-| Входное питание | 4.5–5.5V |
-| Ток | до 240 mA |
-| Интерфейс | 5V/3.3V (автоматический сдвиг уровней) |
-
+| Входное питание | 5V (pin 5V) |
+| Логика | 3.3V |
+| USB | CH340 (встроенный) |
 
 ## Структура проекта
 
@@ -61,14 +67,14 @@ arduino_cursor_proj/
 ├── src/
 │   ├── plant_watering/       # Скетч для LGT8F328P
 │   │   └── plant_watering.ino
-│   └── esp_mqtt_bridge/     # Скетч для ESP8266 ESP-01
+│   └── esp_mqtt_bridge/     # Скетч для Wemos D1 Mini
 │       └── esp_mqtt_bridge.ino
 ├── lib/
 ├── docs/
 │   ├── README.md
 │   └── components_info/
 │       ├── board_info.txt
-│       └── esp-01_adapter_info.txt
+│       └── d1_mini_info.txt
 └── package.json
 ```
 
@@ -83,15 +89,17 @@ arduino_cursor_proj/
    - Tools → Port → COMx
    - Открыть `src/plant_watering/plant_watering.ino`, загрузить скетч
 
-2. **ESP8266 ESP-01**
-   - Tools → Board → ESP8266 Boards → Generic ESP8266 Module
-   - CPU Frequency: 80 MHz, Flash Size: 1MB
+2. **Wemos D1 Mini**
+   - File → Preferences → Additional boards manager URLs: `https://arduino.esp8266.com/stable/package_esp8266com_index.json`
+   - Tools → Board → Boards Manager → найти «esp8266 by ESP8266 Community» → Install
+   - Tools → Board → esp8266 → LOLIN(WEMOS) D1 Mini
+   - Tools → Port → COMx (D1 Mini подключается напрямую по USB)
    - Открыть `src/esp_mqtt_bridge/esp_mqtt_bridge.ino`
    - Установить Wi-Fi и MQTT в начале файла:
      - `WIFI_SSID`, `WIFI_PASS`
-     - `MQTT_BROKER` (например broker.hivemq.com)
-   - Установить библиотеку PubSubClient (Sketch → Include Library → Manage Libraries)
-   - Загрузить скетч (потребуется USB-UART адаптер для ESP-01)
+     - `MQTT_BROKER`
+   - Sketch → Include Library → Manage Libraries → найти «PubSubClient» → Install
+   - Загрузить скетч
 
 ### Калибровка датчика
 
@@ -153,7 +161,7 @@ arduino_cursor_proj/
 
 ## Рекомендации
 
-- Адаптер ESP-01 потребляет до 240 mA от 5V; при ограниченном питании — отдельный источник 5V.
+- D1 Mini потребляет до 340 mA от 5V (при передаче Wi-Fi); при ограниченном питании — отдельный источник 5V.
 - Насос подключать через реле или MOSFET, не напрямую к пину.
 - Брокер MQTT: HiveMQ Cloud (бесплатно) или локальный Mosquitto.
 - Telegram-бот может подписаться на MQTT и отправлять уведомления.

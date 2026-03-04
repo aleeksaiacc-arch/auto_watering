@@ -1,9 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
-#define WIFI_SSID "YOUR_SSID"
-#define WIFI_PASS "YOUR_PASSWORD"
-#define MQTT_BROKER "broker.hivemq.com"
+#define WIFI_SSID "ZTE70"
+#define WIFI_PASS "6867068670"
+#define MQTT_BROKER "t0311730.ala.eu-central-1.emqxsl.com"
 #define MQTT_PORT 1883
 #define MQTT_CLIENT_ID "plant_watering_esp"
 #define MQTT_TOPIC_CMD "plant/command"

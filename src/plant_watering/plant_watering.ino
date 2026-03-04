@@ -5,11 +5,15 @@
 
 #define THRESHOLD_DRY 30
 #define THRESHOLD_WET 70
-#define PUMP_DURATION_MS 10000
-#define PUMP_MAX_MS 60000
-#define SENSOR_READ_INTERVAL 5000
+#define SENSOR_READ_NORMAL   300000UL
+#define SENSOR_READ_WATERING  30000UL
+#define PUMP_ON_DURATION       3000UL
+#define PUMP_PAUSE_DURATION   10000UL
+#define PUMP_SESSION_MAX_MS  600000UL
 #define SENSOR_SAMPLES 5
 #define CMD_BUFFER_SIZE 32
+#define LOG_INTERVAL 3000UL
+#define PUMP_TEST_MS 500
 
 #define ADC_DRY 3500
 #define ADC_WET 800
@@ -20,15 +24,16 @@
 #include <EEPROM.h>
 
 enum Mode { MODE_AUTO, MODE_MANUAL };
-enum PumpState { PUMP_OFF, PUMP_ON };
+enum PumpCycle { CYCLE_IDLE, CYCLE_PUMP_ON, CYCLE_PUMP_PAUSE };
 
 Mode currentMode = MODE_AUTO;
-PumpState pumpState = PUMP_OFF;
+PumpCycle pumpCycle = CYCLE_IDLE;
 int thresholdDry = THRESHOLD_DRY;
 int thresholdWet = THRESHOLD_WET;
-unsigned long pumpStartTime = 0;
+unsigned long wateringStart = 0;
+unsigned long cyclePhaseStart = 0;
 unsigned long lastSensorRead = 0;
-unsigned long lastMqttPublish = 0;
+unsigned long lastLogTime = 0;
 int lastMoisturePercent = -1;
 char cmdBuffer[CMD_BUFFER_SIZE];
 byte cmdIndex = 0;
@@ -41,7 +46,17 @@ SoftwareSerial espSerial(ESP_RX_PIN, ESP_TX_PIN);
 #define WIFI_SERIAL Serial
 #endif
 
-#define MQTT_PUBLISH_INTERVAL 60000
+void logStatus() {
+  char buf[64];
+  if (pumpCycle != CYCLE_IDLE) {
+    snprintf(buf, sizeof(buf), "Moisture: %d%% | Stop watering at: %d%%",
+             lastMoisturePercent, thresholdWet);
+  } else {
+    snprintf(buf, sizeof(buf), "Moisture: %d%% | Start watering at: %d%%",
+             lastMoisturePercent, thresholdDry);
+  }
+  Serial.println(buf);
+}
 
 void setup() {
   pinMode(MOISTURE_PIN, INPUT);
@@ -55,6 +70,22 @@ void setup() {
 #endif
 
   loadThresholdFromEeprom();
+
+  digitalWrite(PUMP_PIN, HIGH);
+  delay(PUMP_TEST_MS);
+  digitalWrite(PUMP_PIN, LOW);
+  Serial.println("Motor test OK");
+
+  int pct = moistureToPercent(readMoistureRaw());
+  lastMoisturePercent = pct;
+  logStatus();
+
+  lastSensorRead = millis();
+  lastLogTime = millis();
+
+  if (currentMode == MODE_AUTO) {
+    runAutoMode(pct);
+  }
 }
 
 void loadThresholdFromEeprom() {
@@ -83,47 +114,79 @@ int moistureToPercent(int raw) {
   return constrain(pct, 0, 100);
 }
 
-void setPump(bool on) {
-  if (on) {
-    if (pumpState == PUMP_OFF) {
-      pumpStartTime = millis();
-    }
-    unsigned long elapsed = millis() - pumpStartTime;
-    if (elapsed < PUMP_MAX_MS) {
-      digitalWrite(PUMP_PIN, HIGH);
-      pumpState = PUMP_ON;
-    } else {
+void startWatering() {
+  wateringStart = millis();
+  cyclePhaseStart = wateringStart;
+  pumpCycle = CYCLE_PUMP_ON;
+  digitalWrite(PUMP_PIN, HIGH);
+}
+
+void stopWatering() {
+  digitalWrite(PUMP_PIN, LOW);
+  pumpCycle = CYCLE_IDLE;
+  sendStatus();
+}
+
+void runPumpCycle(unsigned long now) {
+  if (pumpCycle == CYCLE_IDLE) return;
+
+  unsigned long elapsed = now - cyclePhaseStart;
+
+  if (pumpCycle == CYCLE_PUMP_ON) {
+    if (elapsed >= PUMP_ON_DURATION) {
       digitalWrite(PUMP_PIN, LOW);
-      pumpState = PUMP_OFF;
+      pumpCycle = CYCLE_PUMP_PAUSE;
+      cyclePhaseStart = now;
     }
-  } else {
-    digitalWrite(PUMP_PIN, LOW);
-    pumpState = PUMP_OFF;
+  } else if (pumpCycle == CYCLE_PUMP_PAUSE) {
+    if (elapsed >= PUMP_PAUSE_DURATION) {
+      if (now - wateringStart >= PUMP_SESSION_MAX_MS) {
+        stopWatering();
+      } else {
+        digitalWrite(PUMP_PIN, HIGH);
+        pumpCycle = CYCLE_PUMP_ON;
+        cyclePhaseStart = now;
+      }
+    }
   }
 }
 
 void runAutoMode(int moisturePercent) {
-  if (pumpState == PUMP_ON) {
-    unsigned long elapsed = millis() - pumpStartTime;
-    if (elapsed >= PUMP_DURATION_MS || moisturePercent >= thresholdWet) {
-      setPump(false);
-      sendStatus();
+  if (pumpCycle != CYCLE_IDLE) {
+    if (moisturePercent >= thresholdWet) {
+      stopWatering();
     }
     return;
   }
   if (moisturePercent < thresholdDry) {
-    setPump(true);
+    startWatering();
     sendStatus();
   }
+}
+
+void sendStatus() {
+  char buf[64];
+  snprintf(buf, sizeof(buf), "MOISTURE:%d|PUMP:%s|MODE:%s|THRESHOLD:%d\n",
+           lastMoisturePercent,
+           pumpCycle != CYCLE_IDLE ? "ON" : "OFF",
+           currentMode == MODE_AUTO ? "AUTO" : "MANUAL",
+           thresholdDry);
+  WIFI_SERIAL.print(buf);
+
+#if USE_SERIAL_DEBUG
+  Serial.print("-> ");
+  Serial.print(buf);
+#endif
 }
 
 void processCommand(const char* cmd) {
   if (strcmp(cmd, "PUMP_ON") == 0) {
     currentMode = MODE_MANUAL;
-    setPump(true);
+    startWatering();
     sendStatus();
   } else if (strcmp(cmd, "PUMP_OFF") == 0) {
-    setPump(false);
+    digitalWrite(PUMP_PIN, LOW);
+    pumpCycle = CYCLE_IDLE;
     currentMode = MODE_AUTO;
     sendStatus();
   } else if (strcmp(cmd, "GET_STATUS") == 0) {
@@ -144,25 +207,6 @@ void processCommand(const char* cmd) {
   }
 }
 
-void sendStatus() {
-  int raw = readMoistureRaw();
-  int pct = moistureToPercent(raw);
-  lastMoisturePercent = pct;
-
-  char buf[64];
-  snprintf(buf, sizeof(buf), "MOISTURE:%d|PUMP:%s|MODE:%s|THRESHOLD:%d\n",
-           pct,
-           pumpState == PUMP_ON ? "ON" : "OFF",
-           currentMode == MODE_AUTO ? "AUTO" : "MANUAL",
-           thresholdDry);
-  WIFI_SERIAL.print(buf);
-
-#if USE_SERIAL_DEBUG
-  Serial.print("-> ");
-  Serial.print(buf);
-#endif
-}
-
 void pollSerial() {
   while (WIFI_SERIAL.available()) {
     char c = WIFI_SERIAL.read();
@@ -178,54 +222,29 @@ void pollSerial() {
   }
 }
 
-#if USE_ESP8266
-void mqttPublish() {
-  if (lastMoisturePercent < 0) return;
-  if (millis() - lastMqttPublish < MQTT_PUBLISH_INTERVAL) return;
-  lastMqttPublish = millis();
-
-  char msg[16];
-  snprintf(msg, sizeof(msg), "%d", lastMoisturePercent);
-  mqttPublishTopic("plant/moisture", msg);
-  mqttPublishTopic("plant/pump", pumpState == PUMP_ON ? "ON" : "OFF");
-  mqttPublishTopic("plant/mode", currentMode == MODE_AUTO ? "AUTO" : "MANUAL");
-}
-
-void mqttPublishTopic(const char* topic, const char* payload) {
-  WIFI_SERIAL.print("MQTT_PUB:");
-  WIFI_SERIAL.print(topic);
-  WIFI_SERIAL.print(":");
-  WIFI_SERIAL.println(payload);
-}
-#endif
-
 void loop() {
   unsigned long now = millis();
   pollSerial();
+  runPumpCycle(now);
 
-  if (now - lastSensorRead >= SENSOR_READ_INTERVAL) {
+  if (now - lastLogTime >= LOG_INTERVAL) {
+    lastLogTime = now;
+    logStatus();
+  }
+
+  unsigned long interval = (pumpCycle != CYCLE_IDLE) ? SENSOR_READ_WATERING : SENSOR_READ_NORMAL;
+  if (now - lastSensorRead >= interval) {
     lastSensorRead = now;
-    int raw = readMoistureRaw();
-    int pct = moistureToPercent(raw);
-
-    if (currentMode == MODE_AUTO) {
-      runAutoMode(pct);
-    } else if (pumpState == PUMP_ON) {
-      unsigned long elapsed = now - pumpStartTime;
-      if (elapsed >= PUMP_MAX_MS) {
-        setPump(false);
-      }
-    }
-
+    int pct = moistureToPercent(readMoistureRaw());
     if (pct != lastMoisturePercent) {
-      lastMoisturePercent = pct;
       char buf[24];
       snprintf(buf, sizeof(buf), "MOISTURE:%d\n", pct);
       WIFI_SERIAL.print(buf);
     }
-  }
+    lastMoisturePercent = pct;
 
-#if USE_ESP8266
-  mqttPublish();
-#endif
+    if (currentMode == MODE_AUTO) {
+      runAutoMode(pct);
+    }
+  }
 }
