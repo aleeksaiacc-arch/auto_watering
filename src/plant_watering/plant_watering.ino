@@ -1,4 +1,5 @@
 #define MOISTURE_PIN A0
+#define SENSOR_POWER_PIN 7
 #define PUMP_PIN 4
 #define ESP_RX_PIN 10
 #define ESP_TX_PIN 11
@@ -7,16 +8,17 @@
 #define THRESHOLD_WET 70
 #define SENSOR_READ_NORMAL   300000UL
 #define SENSOR_READ_WATERING  30000UL
-#define PUMP_ON_DURATION       3000UL
+#define PUMP_ON_DURATION       2000UL
 #define PUMP_PAUSE_DURATION   10000UL
 #define PUMP_SESSION_MAX_MS  600000UL
 #define SENSOR_SAMPLES 5
 #define CMD_BUFFER_SIZE 32
 #define LOG_INTERVAL 3000UL
-#define PUMP_TEST_MS 500
+#define PUMP_TEST_MS 1000
 
-#define ADC_DRY 3500
-#define ADC_WET 800
+
+#define ADC_DRY 1023
+#define ADC_WET 300
 
 #define USE_ESP8266 1
 #define USE_SERIAL_DEBUG 0
@@ -60,13 +62,15 @@ void logStatus() {
 
 void setup() {
   pinMode(MOISTURE_PIN, INPUT);
+  pinMode(SENSOR_POWER_PIN, OUTPUT);
+  digitalWrite(SENSOR_POWER_PIN, LOW);
   pinMode(PUMP_PIN, OUTPUT);
   digitalWrite(PUMP_PIN, LOW);
   analogReference(DEFAULT);
 
-  Serial.begin(115200);
+  Serial.begin(9600);
 #if USE_ESP8266
-  espSerial.begin(115200);
+  espSerial.begin(9600);
 #endif
 
   loadThresholdFromEeprom();
@@ -101,15 +105,19 @@ void saveThresholdToEeprom() {
 }
 
 int readMoistureRaw() {
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
+  delay(100);
   long sum = 0;
   for (int i = 0; i < SENSOR_SAMPLES; i++) {
     sum += analogRead(MOISTURE_PIN);
     delay(10);
   }
+  digitalWrite(SENSOR_POWER_PIN, LOW);
   return sum / SENSOR_SAMPLES;
 }
 
 int moistureToPercent(int raw) {
+
   int pct = map(raw, ADC_DRY, ADC_WET, 0, 100);
   return constrain(pct, 0, 100);
 }

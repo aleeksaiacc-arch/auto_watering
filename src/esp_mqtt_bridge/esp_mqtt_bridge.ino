@@ -1,11 +1,15 @@
 #include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include <time.h>
 
 #define WIFI_SSID "ZTE70"
 #define WIFI_PASS "6867068670"
 #define MQTT_BROKER "t0311730.ala.eu-central-1.emqxsl.com"
-#define MQTT_PORT 1883
+#define MQTT_PORT 8883
 #define MQTT_CLIENT_ID "plant_watering_esp"
+#define MQTT_USER "wifi_access"
+#define MQTT_PASS "qazxsw123wifi"
 #define MQTT_TOPIC_CMD "plant/command"
 #define MQTT_TOPIC_MOISTURE "plant/moisture"
 #define MQTT_TOPIC_PUMP "plant/pump"
@@ -13,16 +17,43 @@
 #define SERIAL_BUF_SIZE 128
 #define RECONNECT_DELAY 5000
 
-WiFiClient wifiClient;
+static const char CA_CERT[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT
+MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV
+5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY
+1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4
+NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG
+Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91
+8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe
+pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl
+MrY=
+-----END CERTIFICATE-----
+)EOF";
+
+BearSSL::X509List caCert(CA_CERT);
+BearSSL::WiFiClientSecure wifiClient;
 PubSubClient mqtt(wifiClient);
 char serialBuf[SERIAL_BUF_SIZE];
 byte serialIdx = 0;
 unsigned long lastReconnect = 0;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  wifiClient.setTrustAnchors(&caCert);
   mqtt.setServer(MQTT_BROKER, MQTT_PORT);
   mqtt.setCallback(mqttCallback);
 }
@@ -38,7 +69,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 void connectMqtt() {
   if (mqtt.connected()) return;
-  if (mqtt.connect(MQTT_CLIENT_ID)) {
+  if (mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
     mqtt.subscribe(MQTT_TOPIC_CMD);
   }
 }
@@ -69,18 +100,6 @@ void processSerialLine(const char* line) {
     mqtt.publish(MQTT_TOPIC_MOISTURE, line + 9);
     return;
   }
-  if (strncmp(line, "MQTT_PUB:", 9) == 0) {
-    const char* rest = line + 9;
-    const char* colon = strchr(rest, ':');
-    if (colon && colon > rest) {
-      size_t topicLen = colon - rest;
-      char topic[64];
-      if (topicLen >= sizeof(topic)) topicLen = sizeof(topic) - 1;
-      strncpy(topic, rest, topicLen);
-      topic[topicLen] = '\0';
-      mqtt.publish(topic, colon + 1);
-    }
-  }
 }
 
 void loop() {
@@ -88,6 +107,13 @@ void loop() {
     delay(100);
     return;
   }
+
+  if (time(nullptr) < 1000000000UL) {
+    configTime(0, 0, "pool.ntp.org");
+    delay(100);
+    return;
+  }
+
   if (!mqtt.connected()) {
     if (millis() - lastReconnect > RECONNECT_DELAY) {
       lastReconnect = millis();

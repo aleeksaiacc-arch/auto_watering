@@ -14,7 +14,7 @@
 
 | Компонент | Подключение к LGT8F328P |
 |-----------|-------------------------|
-| Резистивный датчик влажности | SIG → A0<br>VCC → 5V<br>GND → GND |
+| Резистивный датчик влажности | SIG → A0<br>VCC → D7<br>GND → GND |
 | Насос (через IRF540) | D4 → Gate<br>Насос (−) → Drain<br>Source → GND |
 | D1 Mini | TX → D10 (RX)<br>RX → D11 (TX) ¹<br>GND → GND<br>5V → 5V |
 
@@ -89,6 +89,8 @@ arduino_cursor_proj/
    - Tools → Port → COMx
    - Открыть `src/plant_watering/plant_watering.ino`, загрузить скетч
 
+   > **Важно:** выбор правильной платы критичен для Serial. LGT8F328P имеет собственный тактовый генератор, и если выбрать стандартный «Arduino Uno/Nano», UART будет работать на неверной частоте — Serial Monitor покажет нечитаемые символы даже при правильном baud rate.
+
 2. **Wemos D1 Mini**
    - File → Preferences → Additional boards manager URLs: `https://arduino.esp8266.com/stable/package_esp8266com_index.json`
    - Tools → Board → Boards Manager → найти «esp8266 by ESP8266 Community» → Install
@@ -103,7 +105,7 @@ arduino_cursor_proj/
 
 ### Калибровка датчика
 
-1. Загрузить скетч, открыть Serial Monitor (115200).
+1. Загрузить скетч, открыть Serial Monitor (9600).
 2. Измерить значение в **сухой** почве (или на воздухе) — это `ADC_DRY`.
 3. Измерить значение в **воде** — это `ADC_WET`.
 4. В коде изменить:
@@ -118,6 +120,7 @@ arduino_cursor_proj/
 | Константа | Значение | Описание |
 |-----------|----------|----------|
 | MOISTURE_PIN | A0 | Пин датчика влажности |
+| SENSOR_POWER_PIN | 7 | Питание датчика (включается только во время измерения) |
 | PUMP_PIN | 4 | Пин управления насосом |
 | ESP_RX_PIN | 10 | RX для ESP (SoftwareSerial) |
 | ESP_TX_PIN | 11 | TX для ESP |
@@ -130,7 +133,7 @@ arduino_cursor_proj/
 
 ## Протокол LGT ↔ ESP (Serial)
 
-**LGT → ESP (115200, `\n`):**
+**LGT → ESP (9600, `\n`):**
 - `MOISTURE:45` — влажность в %
 - `MOISTURE:45|PUMP:ON|MODE:AUTO|THRESHOLD:30` — полный статус
 - `MQTT_PUB:topic:payload` — публикация в MQTT
